@@ -39,41 +39,29 @@ The authorization server is pretty easy to implement. A minimal version looks li
 [source,java]
 ----
 @SpringBootApplication
+@EnableAuthorizationServer
 public class AuthserverApplication extends WebMvcConfigurerAdapter {
 
   public static void main(String[] args) {
     SpringApplication.run(AuthserverApplication.class, args);
   }
   
-  @Configuration
-  @EnableAuthorizationServer
-  protected static class OAuth2Config extends AuthorizationServerConfigurerAdapter {
-
-    @Autowired
-    private AuthenticationManager authenticationManager;
-    
-    @Override
-    public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
-      endpoints.authenticationManager(authenticationManager);
-    }
-
-@Override
-    public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
-      clients.inMemory()
-          .withClient("acme")
-          .secret("acmesecret")
-          .authorizedGrantTypes("authorization_code", "refresh_token",
-              "password").scopes("openid");
-    }
-
 }
 ----
 
-We only had to do 2 things (after adding `@EnableAuthorizationServer`):
+We only have to do 1 more thing (after adding `@EnableAuthorizationServer`):
 
-* Register a client "acme" with a secret and some authorized grant types including "authorization_code".
+.application.properties
+[source,properties]
+---
+...
+security.oauth2.client.clientId: acme
+security.oauth2.client.clientSecret: acmesecret
+security.oauth2.client.authorized-grant-types: authorization_code,refresh_token,password
+security.oauth2.client.scope: openid
+---
 
-* Inject the default `AuthenticationManager` from Spring Boot autoconfiguration and wire it into the OAuth2 endpoints.
+This registers a client "acme" with a secret and some authorized grant types including "authorization_code".
 
 Now let's get it running on port 9999, with a predictable password for testing:
 
@@ -83,6 +71,7 @@ Now let's get it running on port 9999, with a predictable password for testing:
 server.port=9999
 security.user.password=password
 server.contextPath=/uaa
+...
 ----
 
 We also set the context path so that it doesn't use the default ("/") because otherwise you can get cookies for other servers on localhost being sent to the wrong server. So get the server running and we can make sure it is working:
@@ -127,7 +116,6 @@ If we follow on from <<_the_api_gateway_pattern_angular_js_and_spring_security_p
 <dependency>
   <groupId>org.springframework.session</groupId>
   <artifactId>spring-session</artifactId>
-  <version>1.0.0.RC1</version>
 </dependency>
 <dependency>
   <groupId>org.springframework.boot</groupId>
@@ -146,29 +134,40 @@ with this:
 </dependency>
 ----
 
-and then remove the session `Filter` from the https://github.com/dsyer/spring-security-angular/blob/master/vanilla-oauth2/resource/src/main/groovy/demo/ResourceApplication.groovy[main application class], replacing it with the convenient `@EnableOAuth2Resource` annotation (from Spring Cloud Security):
+and then remove the session `Filter` from the https://github.com/dsyer/spring-security-angular/blob/master/vanilla-oauth2/resource/src/main/java/demo/ResourceApplication.java[main application class], replacing it with the convenient `@EnableResourceServer` annotation (from Spring Security OAuth2):
 
-.ResourceApplication.groovy
+.ResourceApplication.java
 [source,java]
 ----
 @SpringBootApplication
 @RestController
-@EnableOAuth2Resource
+@EnableResourceServer
 class ResourceApplication {
 
-  @RequestMapping('/')
-  def home() {
-    [id: UUID.randomUUID().toString(), content: 'Hello World']
+  @RequestMapping("/")
+  public Message home() {
+    return new Message("Hello World");
   }
 
-  static void main(String[] args) {
-    SpringApplication.run ResourceApplication, args
+  public static void main(String[] args) {
+    SpringApplication.run(ResourceApplication.class, args);
   }
 }
 
 ----
 
-That much is enough to get us a protected resource. Run the application and hit the home page with a command line client:
+With that one change the app is ready to challenge for an access token instead of HTTP Basic, but we need a config change to actually finish the process. We are going to add a small amount of external configuration (in "application.properties") to allow the resource server to decode the tokens it is given and authenticate a user:
+
+.application.properties
+[source,properties]
+----
+...
+security.oauth2.resource.userInfoUri: http://localhost:9999/uaa/user
+----
+
+This tells the server that it can use the token to access a "/user" endpoint and use that to derive authentication information (it's a bit like the https://developers.facebook.com/docs/graph-api/reference/v2.2/user/?locale=en_GB["/me" endpoint] in the Facebook API). Effectively it provides a way for the resource server to decode the token, as expressed by the `ResourceServerTokenServices` interface in Spring OAuth2.
+
+Run the application and hit the home page with a command line client:
 
 [source]
 ----
@@ -185,16 +184,7 @@ $ curl -v localhost:9000
 {"error":"unauthorized","error_description":"An Authentication object was not found in the SecurityContext"}
 ----
 
-and you will see a 401 with a "WWW-Authenticate" header indicating that it wants a bearer token. We are going to add a small amount of external configuration (in "application.properties") to allow the resource server to decode the tokens it is given and authenticate a user:
-
-.application.properties
-[source,properties]
-----
-...
-spring.oauth2.resource.userInfoUri: http://localhost:9999/uaa/user
-----
-
-This tells the server that it can use the token to access a "/user" endpoint and use that to derive authentication information (it's a bit like the https://developers.facebook.com/docs/graph-api/reference/v2.2/user/?locale=en_GB["/me" endpoint] in the Facebook API). Effectively it provides a way for the resource server to decode the token, as expressed by the `ResourceServerTokenServices` interface in Spring OAuth2.
+and you will see a 401 with a "WWW-Authenticate" header indicating that it wants a bearer token.
 
 NOTE: the `userInfoUri` is by far not the only way of hooking a resource server up with a way to decode tokens. In fact it's sort of a lowest common denominator (and not part of the spec), but quite often available from OAuth2 providers (like Facebook, Cloud Foundry, Github), and other choices are available. For instance you can encode the user authentication in the token itself (e.g. with http://jwt.io/[JWT]), or use a shared backend store. There is also a `/token_info` endpoint in CloudFoundry, which provides more detailed information than the user info endpoint, but which requires more thorough authentication. Different options (naturally) provide different benefits and trade-offs, but a full discussion of those is outside the scope of this section.
 
@@ -207,6 +197,7 @@ On the authorization server we can easily add that endpoint
 ----
 @SpringBootApplication
 @RestController
+@EnableAuthorizationServer
 @EnableResourceServer
 public class AuthserverApplication {
 
@@ -237,7 +228,7 @@ $ curl -H "Authorization: Bearer $TOKEN" localhost:9999/uaa/user
 
 == The UI Server
 
-The final piece of this application we need to complete is the UI server, extracting the authentication part and delegating to the authorization server. So, as with link:#changing-the-resource-server[the resource server], we first need to remove the Spring Session and Redis dependencies and replace them with Spring OAuth2.
+The final piece of this application we need to complete is the UI server, extracting the authentication part and delegating to the authorization server. So, as with link:#changing-the-resource-server[the resource server], we first need to remove the Spring Session and Redis dependencies and replace them with Spring OAuth2. Because we are using Zuul in the UI layer we actually use `spring-cloud-starter-oauth2` instead of `spring-security-oauth2` directly (this sets up some autoconfiguration for relaying tokens through the proxy).
 
 Once that is done we can remove the session filter and the "/user" endpoint as well, and set up the application to redirect to the authorization server (using the `@EnableOAuth2Sso` annotation):
 
@@ -253,9 +244,9 @@ public class UiApplication {
     SpringApplication.run(UiApplication.class, args);
   }
 
-  @Configuration
-  @Order(SecurityProperties.ACCESS_OVERRIDE_ORDER)
-  protected static class SecurityConfiguration extends WebSecurityConfigurerAdapter {
+...
+
+}
 ----
 
 Recall from <<_the_api_gateway_pattern_angular_js_and_spring_security_part_iv,Part IV>> that the UI server, by virtue of the `@EnableZuulProxy`, acts an API Gateway and we can declare the route mappings in YAML. So the "/user" endpoint can be proxied to the authorization server:
@@ -273,29 +264,24 @@ zuul:
       url: http://localhost:9999/uaa/user
 ----
 
-Lastly, we need to change the `WebSecurityConfigurerAdapter` to an `OAuth2SsoConfigurerAdapter` since now it is going to be used to modify the defaults in the SSO filter chain set up by `@EnableOAuth2Sso`:
+Lastly, we need to change the application to a `WebSecurityConfigurerAdapter` since now it is going to be used to modify the defaults in the SSO filter chain set up by `@EnableOAuth2Sso`:
 
 .SecurityConfiguration.java
 [source,java,indent=0]
 ----
-  @Configuration
-  protected static class SecurityConfiguration extends OAuth2SsoConfigurerAdapter {
-
-    @Override
-    public void match(RequestMatchers matchers) {
-      matchers.anyRequest();
-    }
-
+@SpringBootApplication
+@EnableZuulProxy
+@EnableOAuth2Sso
+public class UiApplication extends WebSecurityConfigurerAdapter {
     @Override
     public void configure(HttpSecurity http) throws Exception {
       http.authorizeRequests().antMatchers("/index.html", "/home.html", "/")
-          .permitAll().anyRequest().authenticated().and().csrf()
-          .csrfTokenRepository(csrfTokenRepository()).and()
-          .addFilterAfter(csrfHeaderFilter(), CsrfFilter.class);
+          .permitAll().anyRequest().authenticated().and()
+          .csrf()
+            .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse());
     }
     
-    ... // the csrf*() methods are the same as the old WebSecurityConfigurerAdapter
-  }
+}
 ----
 
 The main changes (apart from the base class name) are that the matchers
@@ -308,12 +294,9 @@ thr right authorization server. So we need this in `application.yml`:
 .application.yml
 [source,yaml]
 ----
-spring:
+security:
+  ...
   oauth2:
-    sso:
-      home:
-        secure: false
-        path: /,/**/*.html
     client:
       accessTokenUri: http://localhost:9999/uaa/oauth/token
       userAuthorizationUri: http://localhost:9999/uaa/oauth/authorize
@@ -326,8 +309,21 @@ spring:
 The bulk of that is about the OAuth2 client ("acme") and the
 authorization server locations. There is also a `userInfoUri` (just
 like in the resource server) so that the user can be authenticated in
-the UI app itself. The "home" stuff is about allowing anonymous access
-to the static resources in our single page application.
+the UI app itself.
+
+NOTE: If you want to make the UI application be able to refresh expired
+access tokens automatically, you have to get an `OAuth2RestOperations`
+injected into the Zuul filter that does the relay. You can do this
+by just creating a bean of that type (check the `OAuth2TokenRelayFilter` 
+for details):
+[source,java]
+----
+@Bean
+protected OAuth2RestTemplate OAuth2RestTemplate(
+    OAuth2ProtectedResourceDetails resource, OAuth2ClientContext context) {
+  return new OAuth2RestTemplate(resource, context);
+}
+----
 
 === In the Client
 
@@ -336,7 +332,7 @@ There are some minor tweaks to the UI application on the front end that we still
 .index.html
 [source,html]
 ----
-<div ng-controller="navigation" class="container">
+<div ng-controller="navigation as nav" class="container">
   <ul class="nav nav-pills" role="tablist">
     ...
     <li><a href="#/login">login</a></li>
@@ -350,7 +346,7 @@ to a plain HTML link
 .index.html
 [source,html]
 ----
-<div ng-controller="navigation" class="container">
+<div ng-controller="navigation as nav" class="container">
   <ul class="nav nav-pills" role="tablist">
     ...
     <li><a href="login">login</a></li>
@@ -376,26 +372,26 @@ angular.module('hello', [ 'ngRoute' ]).config(function($routeProvider) {
 }). // ...
 .controller('navigation',
 
-function($rootScope, $scope, $http, $location, $route) {
+function($rootScope, $http, $location, $route) {
 
-  $http.get('user').success(function(data) {
-    if (data.name) {
+  var self = this;
+
+  $http.get('user').then(function(response) {
+    if (response.data.name) {
       $rootScope.authenticated = true;
     } else {
       $rootScope.authenticated = false;
     }
-  }).error(function() {
+  }, function() {
     $rootScope.authenticated = false;
   });
 
-  $scope.credentials = {};
+  self.credentials = {};
 
-  $scope.logout = function() {
-    $http.post('logout', {}).success(function() {
+  self.logout = function() {
+    $http.post('logout', {}).finally(function() {
       $rootScope.authenticated = false;
       $location.path("/");
-    }).error(function(data) {
-      $rootScope.authenticated = false;
     });
   }
 
@@ -406,7 +402,7 @@ function($rootScope, $scope, $http, $location, $route) {
 
 Run all the servers together now, and visit the UI in a browser at http://localhost:8080[http://localhost:8080]. Click on the "login" link and you will be redirected to the authorization server to authenticate (HTTP Basic popup) and approve the token grant (whitelabel HTML), before being redirected to the home page in the UI with the greeting fetched from the OAuth2 resource server using the same token as we authenticated the UI with.
 
-The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, requires a plugin in Firefox). Here's a summary:
+The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, may require a plugin in Firefox). Here's a summary:
 
 |===
 |Verb |Path |Status |Response

@@ -31,28 +31,11 @@ In this architecture the backend is very similar to the https://github.com/dsyer
 <dependency>
   <groupId>org.springframework.session</groupId>
   <artifactId>spring-session</artifactId>
-  <version>1.0.0.RELEASE</version>
 </dependency>
 <dependency>
   <groupId>org.springframework.boot</groupId>
   <artifactId>spring-boot-starter-redis</artifactId>
 </dependency>
-----
-
-and add the `@EnableRedisHttpSession` annotation to the main application class:
-
-.UiApplication.java
-[source,java]
-----
-@SpringBootApplication
-@EnableRedisHttpSession
-public class UiApplication {
-
-public static void main(String[] args) {
-    SpringApplication.run(UiApplication.class, args);
-  }
-
-}
 ----
 
 Since this is now a UI there is no need for the "/resource" endpoint. When you have done that you will have a very simple Angular application (the same as in the "basic" sample), which simplifies testing and reasoning about its behaviour greatly.
@@ -70,13 +53,24 @@ If that's the _whole_ content `application.properties` then the application will
 
 == The Resource Server
 
-The Resource server is easy to generate from one of our existing samples. It is the same as the "spring-session" Resource server in <<_the_resource_server_angular_js_and_spring_security_part_iii,Part III>>: just a "/resource" endpoint and `@EnableRedisHttpSession` to get the distributed session data. We want this server to have a non-default port to listen on, and we want to be able to look up authentication in the session so we need this (in `application.properties`):
+The Resource server is easy to generate from one of our existing samples. It is the same as the "spring-session" Resource server in <<_the_resource_server_angular_js_and_spring_security_part_iii,Part III>>: just a "/resource" endpoint Spring Session to get the distributed session data. We want this server to have a non-default port to listen on, and we want to be able to look up authentication in the session so we need this (in `application.properties`):
 
 .application.properties
 [source,properties]
 ----
 server.port: 9000
 security.sessions: NEVER
+----
+
+We are going to be POSTing changes to our message resource, which is a new feature in this tutorial. It means that we are going to need CSRF protection in the backend, and we need to do the usual trick to make Spring Security play nicely with Angular:
+
+[source,java,indent=0]
+----
+	@Override
+	protected void configure(HttpSecurity http) throws Exception {
+		http.csrf()
+				.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse());
+	}
 ----
 
 The completed sample is https://github.com/dsyer/spring-security-angular/tree/master/double/resource[here in github] if you want to take a peek.
@@ -95,24 +89,7 @@ $ curl https://cloud-start.spring.io/starter.tgz -d style=web \
 
 You can then import that project (it's a normal Maven Java project by default) into your favourite IDE, or just work with the files and "mvn" on the command line. There is a version https://github.com/dsyer/spring-security-angular/tree/master/double/gateway[in github] if you want to go from there, but it has a few extra features that we don't need yet.
 
-Starting from the blank Initializr application, we add the Spring Session dependency (like in the UI above), and the `@EnableRedisHttpSession` annotation:
-
-.GatewayApplication.java
-[source,java]
-----
-@SpringBootApplication
-@EnableRedisHttpSession
-@EnableZuulProxy
-public class GatewayApplication {
-
-public static void main(String[] args) {
-    SpringApplication.run(GatewayApplication.class, args);
-  }
-
-}
-----
-
-The Gateway is ready to run, but it doesn't yet know about our backend services, so let's just set that up in its `application.yml` (renaming from `application.properties` if you did the curl thing above):
+Starting from the blank Initializr application, we add the Spring Session dependency (like in the UI above). The Gateway is ready to run, but it doesn't yet know about our backend services, so let's just set that up in its `application.yml` (renaming from `application.properties` if you did the curl thing above):
 
 .application.yml
 [source]
@@ -121,8 +98,8 @@ zuul:
   routes:
     ui:
       url: http://localhost:8081
-    resource:
-      url: http://locahost:9000
+   resource:
+      url: http://localhost:9000
 security:
   user:
     password:
@@ -136,7 +113,7 @@ There are 2 routes in the proxy, one each for the UI and resource server, and we
 
 We now have three components, running on 3 ports. If you point the browser at http://localhost:8080/ui/[http://localhost:8080/ui/] you should get an HTTP Basic challenge, and you can authenticate as "user/password" (your credentials in the Gateway), and once you do that you should see a greeting in the UI, via a backend call through the proxy to the Resource server.
 
-The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, requires a plugin in Firefox). Here's a summary:
+The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, may require a plugin in Firefox). Here's a summary:
 
 |===
 |Verb |Path |Status |Response
@@ -156,25 +133,25 @@ Hurrah, it works! You have two backend servers, one of which is a UI, each with 
 
 == Adding a Login Form
 
-Just as in the "basic" sample in <<_spring_and_angular_js_a_secure_single_page_application,Part I>> we can now add a login form to the Gateway, e.g. by copying the code from <<_the_login_page_angular_js_and_spring_security_part_ii,Part II>>. When we do that we can also add some basic navigation elements in the Gateway, so the user doesn't have to know the path to the UI backend in the proxy. So let's first copy the static assets from the "single" UI into the Gateway, delete the message rendering and insert a login form into our home page (in the `&lt;body/&gt;` somewhere):
+Just as in the "basic" sample in <<_spring_and_angular_js_a_secure_single_page_application,Part I>> we can now add a login form to the Gateway, e.g. by copying the code from <<_the_login_page_angular_js_and_spring_security_part_ii,Part II>>. When we do that we can also add some basic navigation elements in the Gateway, so the user doesn't have to know the path to the UI backend in the proxy. So let's first copy the static assets from the "single" UI into the Gateway, delete the message rendering and insert a login form into our home page (in the `<body/>` somewhere):
 
 .index.html
 [source,html]
 ----
-<body ng-app="hello" ng-controller="navigation" ng-cloak
+<body ng-app="hello" ng-controller="navigation as nav" ng-cloak
 	class="ng-cloak">
   ...
-  <div class="container" ng-show="!authenticated">
-    <form role="form" ng-submit="login()">
+  <div class="container" ng-show="!nav.authenticated">
+    <form role="form" ng-submit="nav.login()">
       <div class="form-group">
         <label for="username">Username:</label> <input type="text"
           class="form-control" id="username" name="username"
-          ng-model="credentials.username" />
+          ng-model="nav.credentials.username" />
       </div>
       <div class="form-group">
         <label for="password">Password:</label> <input type="password"
           class="form-control" id="password" name="password"
-          ng-model="credentials.password" />
+          ng-model="nav.credentials.password" />
       </div>
       <button type="submit" class="btn btn-primary">Submit</button>
     </form>
@@ -187,7 +164,7 @@ Instead of the message rendering we will have a nice big navigation button:
 .index.html
 [source,html]
 ----
-<div class="container" ng-show="authenticated">
+<div class="container" ng-show="nav.authenticated">
   <a class="btn btn-primary" href="/ui/">Go To User Interface</a>
 </div>
 ----
@@ -196,30 +173,30 @@ If you are looking at the sample in github, it also has a minimal navigation bar
 
 image:https://raw.githubusercontent.com/dsyer/spring-security-angular/master/double/login.png[Login Page]
 
-To support the login form we need some JavaScript with a "navigation" controller implementing the `login()` function we declared in the `&lt;form/&gt;`, and we need to set the `authenticated` flag so that the home page will render differently depending on whether or not the user is authenticated. For example:
+To support the login form we need some JavaScript with a "navigation" controller implementing the `login()` function we declared in the `<form/>`, and we need to set the `authenticated` flag so that the home page will render differently depending on whether or not the user is authenticated. For example:
 
-.hello.js
+.gateway.js
 [source,javascript]
 ----
-angular.module('hello', []).controller('navigation',
-function($scope, $http) {
+angular.module('gateway', []).controller('navigation',
+function($http) {
 
   ...
   
   authenticate();
   
-  $scope.credentials = {};
+  self.credentials = {};
 
-$scope.login = function() {
-    authenticate($scope.credentials, function() {
-      if ($scope.authenticated) {
+  self.login = function() {
+    authenticate(self.credentials, function() {
+      if (self.authenticated) {
         console.log("Login succeeded")
-        $scope.error = false;
-        $scope.authenticated = true;
+        self.error = false;
+        self.authenticated = true;
       } else {
         console.log("Login failed")
-        $scope.error = true;
-        $scope.authenticated = false;
+        self.error = true;
+        self.authenticated = false;
       }
     })
   };
@@ -229,7 +206,7 @@ $scope.login = function() {
 
 where the implementation of the `authenticate()` function is similar to that in <<_the_login_page_angular_js_and_spring_security_part_ii,Part II>>:
 
-.hello.js
+.gateway.js
 [source,javascript]
 ----
 var authenticate = function(credentials, callback) {
@@ -242,22 +219,22 @@ var authenticate = function(credentials, callback) {
 
   $http.get('user', {
     headers : headers
-  }).success(function(data) {
-    if (data.name) {
-      $scope.authenticated = true;
+  }).then(function(response) {
+    if (response.data.name) {
+      self.authenticated = true;
     } else {
-      $scope.authenticated = false;
+      self.authenticated = false;
     }
     callback && callback();
-  }).error(function() {
-    $scope.authenticated = false;
+  }, function() {
+    self.authenticated = false;
     callback && callback();
   });
 
 }
 ----
 
-We can use the `$scope` to store the `authenticated` flag because there is only one controller in this simple application.
+We can use the `self` to store the `authenticated` flag because there is only one controller in this simple application.
 
 If we run this enhanced Gateway, instead of having to remember the URL for the UI we can just load the home page and follow links. Here's the home page for an authenticated user:
 
@@ -309,9 +286,7 @@ public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
 
 where the "admin" user has been enhanced with 3 new roles ("ADMIN", "READER" and "WRITER") and we have also added an "audit" user with "ADMIN" access, but not "WRITER".
 
-____
-Aside: In a production system the user account data would be managed in a backend database (most likely a directory service), not hard coded in the Spring Configuration. Sample applications connecting to such a database are easy to find on the internet, for example in the https://github.com/spring-projects/spring-security/tree/master/samples[Spring Security Samples].
-____
+TIP: In a production system the user account data would be managed in a backend database (most likely a directory service), not hard coded in the Spring Configuration. Sample applications connecting to such a database are easy to find on the internet, for example in the https://github.com/spring-projects/spring-security/tree/master/samples[Spring Security Samples].
 
 The access decisions go in the Admin application. For the "ADMIN" role (which is required globally for this backend) we do it in Spring Security:
 
@@ -342,8 +317,8 @@ For the "READER" and "WRITER" roles the application itself is split, and since t
 ----
 <div class="container">
   <h1>Admin</h1>
-  <div ng-show="authenticated" ng-include="template"></div>
-  <div ng-show="!authenticated" ng-include="'unauthenticated.html'"></div>
+  <div ng-show="home.authenticated" ng-include="home.template"></div>
+  <div ng-show="!home.authenticated" ng-include="'unauthenticated.html'"></div>
 </div>
 ----
 
@@ -357,7 +332,7 @@ The `template` variable is initialized in our controller, first by defining a ut
 [source,javascript]
 ----
 var computeDefaultTemplate = function(user) {
-  $scope.template = user && user.roles
+  self.template = user && user.roles
       && user.roles.indexOf("ROLE_WRITER")>0 ? "write.html" : "read.html";		
 }
 ----
@@ -369,17 +344,18 @@ then by using the utility function when the controller loads:
 ----
 angular.module('admin', []).controller('home',
 
-function($scope, $http) {
+function($http) {
 	
-  $http.get('user').success(function(data) {
+  $http.get('user').then(function(response) {
+    var data = response.data;
     if (data.name) {
-      $scope.authenticated = true;
-      $scope.user = data;
+      self.authenticated = true;
+      self.user = data;
       computeDefaultTemplate(data);
     } else {
-      $scope.authenticated = false;
+      self.authenticated = false;
     }
-    $scope.error = null
+    self.error = null
   })
   ...
       
@@ -395,7 +371,6 @@ To support this function on the backend we need an endpoint, e.g. in our main ap
 ----
 @SpringBootApplication
 @RestController
-@EnableRedisHttpSession
 public class AdminApplication {
 
   @RequestMapping("/user")
@@ -416,6 +391,61 @@ public class AdminApplication {
 
 NOTE: the role names come back from the "/user" endpoint with the "ROLE_" prefix so we can distinguish them from other kinds of authorities (it's a Spring Security thing). Thus the "ROLE_" prefix is needed in the JavaScript, but not in the Spring Security configuration, where it is clear from the method names that "roles" are the focus of the operations.
 
+== Changes in the Gateway to Support Admin UI
+
+We are going to use the roles to make access decisions in the Gateway as well (so we can conditionally display a link to the admin UI), so we should add the "roles" to the "/user" endpoint in the Gateway as well. Once that is in place we can add some JavaScript to set up a flag to indicate that the current user is an "ADMIN". In the `authenticated()` function:
+
+.gateway.js
+[source,javascript]
+----
+$http.get('user', {
+  headers : headers
+}).then(function(response) {
+  var data = response.data;
+  if (data.name) {
+    self.authenticated = true;
+    self.user = data.name
+    self.admin = data && data.roles && data.roles.indexOf("ROLE_ADMIN")>-1;
+  } else {
+    self.authenticated = false;
+    self.admin = false;
+  }
+  callback && callback(true);
+}, function() {
+  self.authenticated = false;
+  callback && callback(false);
+});
+----
+
+and we also need to reset the `admin` flag to `false` when a user logs out:
+
+.gateway.js
+[source,javascript]
+----
+self.logout = function() {
+  $http.post('logout', {}).finally(function() {
+    self.authenticated = false;
+    self.admin = false;
+  });
+}
+----
+
+and then in the HTML we can conditionally show a new link:
+
+.index.html
+[source,html]
+----
+<div class="container" ng-show="nav.authenticated">
+  <a class="btn btn-primary" href="/ui/">Go To User Interface</a>
+</div>
+<br/>
+<div class="container" ng-show="nav.authenticated && admin">
+  <a class="btn btn-primary" href="/admin/">Go To Admin Interface</a>
+</div>
+----
+
+Run all the apps and go to http://localhost:8080 to see the result. Everything should be working fine, and the UI should change depending on the currently authenticated user.
+
 == Why are we Here?
 
 Now we have a nice little system with 2 independent user interfaces and a backend Resource server, all protected by the same authentication in a Gateway. The fact that the Gateway acts as a micro-proxy makes the implementation of the backend security concerns extremely simple, and they are free to concentrate on their own business concerns. The use of Spring Session has (again) avoided a huge amount of hassle and potential errors.
@@ -424,6 +454,6 @@ A powerful feature is that the backends can independently have any kind of authe
 
 A bonus feature of this architecture (single Gateway controlling authentication, and shared session token across all components) is that "Single Logout", a feature we identified as difficult to implement in <<_sso_with_oauth2_angular_js_and_spring_security_part_v,Part V>>, comes for free. To be more precise, one particular approach to the user experience of single logout is automatically available in our finished system: if a user logs out of any of the UIs (Gateway, UI backend or Admin backend), he is logged out of all the others, assuming that each individual UI implemented a "logout" feature the same way (invalidating the session).
 
-____
+****
 Thanks: I would like to thank again everyone who helped me develop this series, and in particular http://spring.io/team/rwinch[Rob Winch] and https://twitter.com/thspaeth[Thorsten Späth] for their careful reviews of the sections and sources code. Since <<_spring_and_angular_js_a_secure_single_page_application,Part I>> was published it hasn't changed much but all the other parts have evolved in response to comments and insights from readers, so thank you also to anyone who read the sections and took the trouble to join in the discussion.
-____
+****

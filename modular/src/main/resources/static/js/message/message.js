@@ -1,5 +1,6 @@
-angular.module('message', []).controller('message', function($scope, $http) {
-	$http.get('/resource/').success(function(data) {
-		$scope.greeting = data;
+angular.module('message', []).controller('message', function($http) {
+	var self = this;
+	$http.get('/resource/').then(function(response) {
+		self.greeting = response.data;
 	});
 });

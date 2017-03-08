@@ -11,7 +11,7 @@ Spring has always been a popular technology for building the backend features (e
 
 == Create a New Project
 
-We are going to step through creating this application in some detail, so that anyone who isn't completely au fait with Spring and Angular can follow what is happening. If you prefer to cut to this chase, you can link:#how-does-it-work[skip to the end] where the application is working, and see how it all fits together. There are various options for creating a new project:
+We are going to step through creating this application in some detail, so that anyone who isn't completely au fait with Spring and Angular can follow what is happening. If you prefer to cut to the chase, you can link:#how-does-it-work[skip to the end] where the application is working, and see how it all fits together. There are various options for creating a new project:
 
 * link:#using-curl[Using curl on the command line]
 * link:#using-spring-boot-cli[Using Spring Boot CLI]
@@ -29,7 +29,7 @@ The easiest way to create a new project to get started is via the https://start.
 ----
 $ mkdir ui && cd ui
 $ curl https://start.spring.io/starter.tgz -d style=web \
--d style=security -d name=ui | tar -xzvf - 
+-d style=security -d name=ui | tar -xzvf -
 ----
 
 You can then import that project (it's a normal Maven Java project by default) into your favourite IDE, or just work with the files and "mvn" on the command line. Then jump to the link:#add-a-home-page[next section].
@@ -137,7 +137,7 @@ $ java -jar target/*.jar
 
 == Front End Assets
 
-Entry-level tutorials on Angular and other front end technologies often just include the library assets directly from the internet (e.g. https://docs.angularjs.org/misc/downloading[the Angular JS website] itself recommends downloading from https://ajax.googleapis.com/ajax/libs/angularjs/1.2.0/angular.min.js[Google CDN]). Instead of doing that we are going to generate the "angular-bootstrap.js" asset by concatenating several files from such libraries. This is not strictly necessary to get the application working, but it _is_ best practice for a production application to consolidate scripts to avoid chatter between the browser and the server (or content delivery network). Since we aren't modifying or customizing the CSS stylesheets it is also unecessary to generate the "angular-bootstrap.css", and we could just use static assets from Google CDN for that as well. However, in a real application we almost certainly would want to modify the stylesheets and we wouldn't want to edit the CSS sources by hand, so we would use a higher level tool (e.g. http://lesscss.org/[Less] or http://sass-lang.com/[Sass]), so we are going to use one too.
+Entry-level tutorials on Angular and other front end technologies often just include the library assets directly from the internet (e.g. https://docs.angularjs.org/misc/downloading[the Angular JS website] itself recommends downloading from https://ajax.googleapis.com/ajax/libs/angularjs/1.4.9/angular.min.js[Google CDN]). Instead of doing that we are going to generate the "angular-bootstrap.js" asset by concatenating several files from such libraries. This is not strictly necessary to get the application working, but it _is_ best practice for a production application to consolidate scripts to avoid chatter between the browser and the server (or content delivery network). Since we aren't modifying or customizing the CSS stylesheets it is also unecessary to generate the "angular-bootstrap.css", and we could just use static assets from Google CDN for that as well. However, in a real application we almost certainly would want to modify the stylesheets and we wouldn't want to edit the CSS sources by hand, so we would use a higher level tool (e.g. http://lesscss.org/[Less] or http://sass-lang.com/[Sass]), so we are going to use one too.
 
 There are many different ways of doing this, but for the purposes of this section, we are going to use http://alexo.github.io/wro4j/[wro4j], which is a Java-based toolchain for preprocessing and packaging front end assets. It can be used as a JIT (Just in Time) `Filter` in any Servlet application, but it also has good support for build tools like Maven and Eclipse, and that is how we are going to use it. So we are going to build static resource files and bundle them in our application JAR.
 
@@ -151,46 +151,15 @@ To create static resources at build time we add some magic to the Maven `pom.xml
 [source,xml]
 ----
 <build>
-  <resources>
-    <resource>
-      <directory>${project.basedir}/src/main/resources</directory>
-    </resource>
-    <resource>
-      <directory>${project.build.directory}/generated-resources</directory>
-    </resource>
-  </resources>
   <plugins>
     <plugin>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-maven-plugin</artifactId>
     </plugin>
     <plugin>
-      <artifactId>maven-resources-plugin</artifactId>
-      <executions>
-        <execution>
-          <!-- Serves *only* to filter the wro.xml so it can get an absolute 
-            path for the project -->
-          <id>copy-resources</id>
-          <phase>validate</phase>
-          <goals>
-            <goal>copy-resources</goal>
-          </goals>
-          <configuration>
-            <outputDirectory>${basedir}/target/wro</outputDirectory>
-            <resources>
-              <resource>
-                <directory>src/main/wro</directory>
-                <filtering>true</filtering>
-              </resource>
-            </resources>
-          </configuration>
-        </execution>
-      </executions>
-    </plugin>
-    <plugin>
       <groupId>ro.isdc.wro4j</groupId>
       <artifactId>wro4j-maven-plugin</artifactId>
-      <version>1.7.6</version>
+      <version>1.8.0</version>
       <executions>
         <execution>
           <phase>generate-resources</phase>
@@ -204,24 +173,24 @@ To create static resources at build time we add some magic to the Maven `pom.xml
         <cssDestinationFolder>${project.build.directory}/generated-resources/static/css</cssDestinationFolder>
         <jsDestinationFolder>${project.build.directory}/generated-resources/static/js</jsDestinationFolder>
         <wroFile>${project.build.directory}/wro/wro.xml</wroFile>
-        <extraConfigFile>${basedir}/src/main/wro/wro.properties</extraConfigFile>
-        <contextFolder>${basedir}/src/main/wro</contextFolder>
+        <extraConfigFile>${project.build.directory}/wro/wro.properties</extraConfigFile>
+        <contextFolder>${project.build.directory}/wro</contextFolder>
       </configuration>
       <dependencies>
         <dependency>
           <groupId>org.webjars</groupId>
           <artifactId>jquery</artifactId>
-          <version>2.1.1</version>
+          <version>${jquery.version}</version>
         </dependency>
         <dependency>
           <groupId>org.webjars</groupId>
           <artifactId>angularjs</artifactId>
-          <version>1.3.8</version>
+          <version>${angularjs.version}</version>
         </dependency>
         <dependency>
           <groupId>org.webjars</groupId>
           <artifactId>bootstrap</artifactId>
-          <version>3.2.0</version>
+          <version>${bootstrap.version}</version>
         </dependency>
       </dependencies>
     </plugin>
@@ -235,7 +204,7 @@ You can copy that verbatim into your POM, or just scan it if you are following a
 
 * Twitter Bootstrap has a dependency on jQuery, so we include that as well. An Angular JS application that didn't use Bootstrap wouldn't need that since Angular has its own version of the features it needs from jQuery.
 
-* The generated resources will go in "target/generated-resources", and because that is declared in the `&lt;resources/&gt;` section, they will be packaged in the output JAR from the project, and available on the classpath in the IDE (as long as we are using Maven tooling, e.g. m2e in Eclipse).
+* The generated resources will go in "target/classes", so they will be packaged in the output JAR from the project, and also available on the classpath in the IDE (as long as we are using Maven tooling, e.g. m2e in Eclipse).
 
 * The wro4j-maven-plugin has some Eclipse integration features and you can install it from the Eclipse Marketplace (try it later if this is your first time - it's not needed to complete the application). If you do that then Eclipse will watch the source files and re-generate the outputs if they change. If you run in debug mode then changes are immediately re-loadable in a browser.
 
@@ -263,11 +232,13 @@ postProcessors=less4j,jsMin
 ----
 <groups xmlns="http://www.isdc.ro/wro">
   <group name="angular-bootstrap">
-  <css>webjar:bootstrap/3.2.0/less/bootstrap.less</css>   
-    <css>file:${project.basedir}/src/main/wro/main.less</css>
-    <js>webjar:jquery/2.1.1/jquery.min.js</js>
-    <js>webjar:angularjs/1.3.8/angular.min.js</js>
-  </group>
+	<css>webjar:bootstrap/@bootstrap.version@/less/bootstrap.less</css>
+    <css>file:@project.basedir@/src/main/wro/main.less</css>
+    <js>webjar:jquery/@jquery.version@/jquery.min.js</js>
+    <js>webjar:angularjs/@angularjs.version@/angular.min.js</js>
+    <js>webjar:angularjs/@angularjs.version@/angular-route.min.js</js>
+    <js>webjar:angularjs/@angularjs.version@/angular-cookies.min.js</js>
+   </group>
 </groups>
 ----
 +
@@ -301,6 +272,31 @@ The name of the application is "hello" and it has an empty (and redundant) "conf
 Notice that we injected a magic `$scope` into the controller function (Angular does https://docs.angularjs.org/tutorial[dependency injection by naming convention], and recognises the names of your function parameters). The `$scope` is then used inside the function to set up content and behaviour for the UI elements that this controller is responsible for.
 
 If you added that file under "src/main/resources/static/js" your app should now be secure and functional, and it will say "Hello World!". The `greeting` is rendered by Angular in the HTML using the handlebar placeholders, `{{greeting.id}}` and `{{greeting.content}}`.
+
+[[controller-as]]
+== Using Controller As
+
+Binding directly to `$scope` is a little bit too magic for us - in fact it is sort of a smell, and we want to flush it out now before we make any more changes. Angular provides us with a simple idiom to explicitly declare a namespace for the controller, and use the controller instance itself, not the implicit `$scope` when we bind in the UI. We need to make 2 simple changes, one to the HTML where we add the "as" keyword to the `ng-controller` and then refer back to it when we bind to the model:
+
+.index.html
+[source,html]
+----
+<div ng-controller="home as home" ng-cloak class="ng-cloak">
+  <p>The ID is {{home.greeting.id}}</p>
+  <p>The content is {{home.greeting.content}}</p>
+</div>
+----
+
+and in the client we also need to bind the greeting to the controller instead of to `$scope`:
+
+.hello.js
+[source,javascript]
+----
+angular.module('hello', [])
+  .controller('home', function() {
+    this.greeting = {id: 'xxx', content: 'Hello World!'}
+})
+----
 
 [[dynamic-content]]
 == Adding Dynamic Content
@@ -347,14 +343,17 @@ So let's grab that message in the browser. Modify the "home" controller to load 
 [source,javascript]
 ----
 angular.module('hello', [])
-  .controller('home', function($scope, $http) {
-  $http.get('/resource/').success(function(data) {
-    $scope.greeting = data;
+  .controller('home', function($http) {
+  var self = this;
+  $http.get('/resource/').then(function(response) {
+    self.greeting = response.data;
   })
 });
 ----
 
 We injected an https://docs.angularjs.org/api/ng/service/$http[`$http` service], which is provided by Angular as a core feature, and used it to GET our resource. Angular passes us the JSON from the response body back to a callback function on success.
+
+NOTE: following a common convention, we introduced a "self" variable as an alias for "this" to refer back to the controller inside a callback.
 
 Run the application again (or just reload the home page in the browser), and you will see the dynamic message with its unique ID. So, even though the resource is protected and you can't curl it directly, the browser was able to access the content. We have a secure single page application in less than a hundred lines of code!
 
@@ -363,7 +362,7 @@ NOTE: You might need to force your browser to reload the static resources after 
 [[how-does-it-work]]
 == How Does it Work?
 
-The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, requires a plugin in Firefox). Here's a summary:
+The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, may require a plugin in Firefox). Here's a summary:
 
 |===
 |Verb |Path |Status |Response
@@ -401,6 +400,6 @@ CSRF isn't really an issue with our application as it stands since it only needs
 
 In the <<_the_login_page_angular_js_and_spring_security_part_ii,next section in this series>> we will extend the application to use form-based authentication, which is a lot more flexible than HTTP Basic. Once we have a form we will need CSRF protection, and both Spring Security and Angular have some nice out-of-the box features to help with this. Spoiler: we are going to need to use the `HttpSession`.
 
-____
-Thanks: I would like to thank everyone who helped me develop this series, and in particular http://spring.io/team/rwinch[Rob Winch] and https://twitter.com/thspaeth[Thorsten Spaeth] for their careful reviews of the sections and sources codes, and for teaching me a few tricks I didn't know even about the parts I thought I was most familar with.
-____
+****
+Thanks: I would like to thank everyone who helped me develop this series, and in particular http://spring.io/team/rwinch[Rob Winch] and https://twitter.com/thspaeth[Thorsten Spaeth] for their careful reviews of the text and source code, and for teaching me a few tricks I didn't know even about the parts I thought I was most familar with.
+****

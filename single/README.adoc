@@ -29,11 +29,11 @@ The core of a single page application is a static "index.html". We already had a
 </head>
 
 <body ng-app="hello" ng-cloak class="ng-cloak">
-	<div ng-controller="navigation" class="container">
+	<div ng-controller="navigation as nav" class="container">
 		<ul class="nav nav-pills" role="tablist">
 			<li class="active"><a href="#/">home</a></li>
 			<li><a href="#/login">login</a></li>
-			<li ng-show="authenticated"><a href="" ng-click="logout()">logout</a></li>
+			<li ng-show="authenticated"><a href="" ng-click="nav.logout()">logout</a></li>
 		</ul>
 	</div>
 	<div ng-view class="container"></div>
@@ -63,20 +63,23 @@ Let's modify the "hello" application (in "src/main/resources/public/js/hello.js"
 angular.module('hello', [ 'ngRoute' ])
   .config(function($routeProvider, $httpProvider) {
 
-	$routeProvider.when('/', {
-		templateUrl : 'home.html',
-		controller : 'home'
-	}).when('/login', {
-		templateUrl : 'login.html',
-		controller : 'navigation'
-	}).otherwise('/');
+    $routeProvider.when('/', {
+      templateUrl : 'home.html',
+      controller : 'home',
+      controllerAs: 'controller'
+    }).when('/login', {
+      templateUrl : 'login.html',
+      controller : 'navigation',
+      controllerAs: 'controller'
+    }).otherwise('/');
 
     $httpProvider.defaults.headers.common["X-Requested-With"] = 'XMLHttpRequest';
 
   })
-  .controller('home', function($scope, $http) {
-    $http.get('/resource/').success(function(data) {
-      $scope.greeting = data;
+  .controller('home', function($http) {
+    var self = this;
+    $http.get('/resource/').then(function(response) {
+      self.greeting = response.data;
     })
   })
   .controller('navigation', function() {});
@@ -94,7 +97,7 @@ In order to use the "ngRoute" module, we need to add a line to the "wro.xml" con
 <groups xmlns="http://www.isdc.ro/wro">
   <group name="angular-bootstrap">
     ...
-    <js>webjar:angularjs/1.3.8/angular-route.min.js</js>
+    <js>webjar:angularjs/1.4.9/angular-route.min.js</js>
    </group>
 </groups>
 ----
@@ -108,13 +111,15 @@ The greeting content from the old home page can go in "home.html" (right next to
 ----
 <h1>Greeting</h1>
 <div ng-show="authenticated">
-	<p>The ID is {{greeting.id}}</p>
-	<p>The content is {{greeting.content}}</p>
+    <p>The ID is {{controller.greeting.id}}</p>
+    <p>The content is {{controller.greeting.content}}</p>
 </div>
 <div  ng-show="!authenticated">
-	<p>Login to see your greeting</p>
+    <p>Login to see your greeting</p>
 </div>
 ----
+
+Note that we are binding to the controller as "controller" because that is how it was declared in the route provider configuration.
 
 Since the user now has the choice whether to login or not (before it was all controlled by the browser), we need to distinguish in the UI between content that is secure and that which is not. We have anticipated this by adding references to an (as yet non-existent) `authenticated` variable.
 
@@ -125,23 +130,23 @@ The login form goes in "login.html":
 .login.html
 [source,html]
 ----
-<div class="alert alert-danger" ng-show="error">
-	There was a problem logging in. Please try again.
+<div class="alert alert-danger" ng-show="controller.error">
+    There was a problem logging in. Please try again.
 </div>
-<form role="form" ng-submit="login()">
-	<div class="form-group">
-		<label for="username">Username:</label> <input type="text"
-			class="form-control" id="username" name="username" ng-model="credentials.username"/>
-	</div>
-	<div class="form-group">
-		<label for="password">Password:</label> <input type="password"
-			class="form-control" id="password" name="password" ng-model="credentials.password"/>
-	</div>
-	<button type="submit" class="btn btn-primary">Submit</button>
+<form role="form" ng-submit="controller.login()">
+    <div class="form-group">
+        <label for="username">Username:</label> <input type="text"
+            class="form-control" id="username" name="username" ng-model="controller.credentials.username"/>
+    </div>
+    <div class="form-group">
+        <label for="password">Password:</label> <input type="password"
+            class="form-control" id="password" name="password" ng-model="controller.credentials.password"/>
+    </div>
+    <button type="submit" class="btn btn-primary">Submit</button>
 </form>
 ----
 
-This is a very standard login form, with 2 inputs for username and password and a button for submitting the form via https://docs.angularjs.org/api/ng/directive/ngSubmit[`ng-submit`]. You don't need an action on the form tag, so it's probably better not to put one in at all. There is also an error message, shown only if the angular `$scope` contains an `error`. The form controls use https://docs.angularjs.org/api/ng/directive/ngModel[`ng-model`] to pass data between the HTML and the Angular controller, and in this case we are using a `credentials` object to hold the username and pasword. According to the routes we defined the login form is linked with the "navigation" controller, which is so far empty, so let's head over to that to fill in some gaps.
+This is a very standard login form, with 2 inputs for username and password and a button for submitting the form via https://docs.angularjs.org/api/ng/directive/ngSubmit[`ng-submit`]. You don't need an action on the form tag, so it's probably better not to put one in at all. There is also an error message, shown only if the angular model contains an `error`. The form controls use https://docs.angularjs.org/api/ng/directive/ngModel[`ng-model`] to pass data between the HTML and the Angular controller, and in this case we are using a `credentials` object to hold the username and pasword. According to the routes we defined the login form is linked with the "navigation" controller, which is so far empty, so let's head over to that to fill in some gaps.
 
 == The Authentication Process
 
@@ -157,7 +162,9 @@ To submit the form we need to define the `login()` function that we referenced a
 angular.module('hello', [ 'ngRoute' ]) // ... omitted code
 .controller('navigation',
 
-  function($rootScope, $scope, $http, $location) {
+  function($rootScope, $http, $location) {
+
+  var self = this
 
   var authenticate = function(credentials, callback) {
 
@@ -165,14 +172,14 @@ angular.module('hello', [ 'ngRoute' ]) // ... omitted code
         + btoa(credentials.username + ":" + credentials.password)
     } : {};
 
-    $http.get('user', {headers : headers}).success(function(data) {
-      if (data.name) {
+    $http.get('user', {headers : headers}).then(function(response) {
+      if (response.data.name) {
         $rootScope.authenticated = true;
       } else {
         $rootScope.authenticated = false;
       }
       callback && callback();
-    }).error(function() {
+    }, function() {
       $rootScope.authenticated = false;
       callback && callback();
     });
@@ -180,15 +187,15 @@ angular.module('hello', [ 'ngRoute' ]) // ... omitted code
   }
 
   authenticate();
-  $scope.credentials = {};
-  $scope.login = function() {
-      authenticate($scope.credentials, function() {
+  self.credentials = {};
+  self.login = function() {
+      authenticate(self.credentials, function() {
         if ($rootScope.authenticated) {
           $location.path("/");
-          $scope.error = false;
+          self.error = false;
         } else {
           $location.path("/login");
-          $scope.error = true;
+          self.error = true;
         }
       });
   };
@@ -256,13 +263,54 @@ public class UiApplication {
 
 This is a standard Spring Boot application with Spring Security customization, just allowing anonymous access to the static (HTML) resources (the CSS and JS resources are already accessible by default). The HTML resources need to be available to anonymous users, not just ignored by Spring Security, for reasons that will become clear.
 
+== Logout
+
+The application is almost finished functionally. The last thing we need to do is implement the logout feature that we sketched in the home page. Here's a reminder what the navigation bar looks like:
+
+.index.html
+[source,html]
+----
+<div ng-controller="navigation as nav" class="container">
+  <ul class="nav nav-pills" role="tablist">
+    <li class="active"><a href="#/">home</a></li>
+    <li><a href="#/login">login</a></li>
+    <li ng-show="authenticated"><a href="" ng-click="nav.logout()">logout</a></li>
+  </ul>
+</div>
+----
+
+If the user is authenticated then we show a "logout" link and hook it to a `logout()` function in the "navigation" controller. The implementation of the function is relatively simple:
+
+.hello.js
+[source,javascript]
+----
+angular.module('hello', [ 'ngRoute' ]). 
+// ...
+.controller('navigation', function(...) {
+
+...
+
+self.logout = function() {
+  $http.post('logout', {}).finally(function() {
+    $rootScope.authenticated = false;
+    $location.path("/");
+  });
+}
+
+...
+
+});
+----
+
+It sends an HTTP POST to "/logout" which we now need to implement on the server. This is straightforward because it is added for us already by Spring Security (i.e. we don't need to do anything for this simple use case). For more control over the behaviour of logout you could use the `HttpSecurity` callbacks in your `WebSecurityAdapter` to, for instance execute some business logic after logout.
+
 == CSRF Protection
 
-The application is almost ready to use, but if you try running it you will find that the login form doesn't work. Look at the responses in the browser and you will see why:
+The application is almost ready to use, and in fact if you run it you will find that everything we built so far actually works except the logout link. Try using it and look at the responses in the browser and you will see why:
 
 [source]
 ----
-POST /login HTTP/1.1
+POST /logout HTTP/1.1
 ...
 Content-Type: application/x-www-form-urlencoded
 
@@ -279,37 +327,9 @@ Transfer-Encoding: chunked
 
 That's good because it means that Spring Security's built-in CSRF protection has kicked in to prevent us from shooting ourselves in the foot. All it wants is a token sent to it in a header called "X-CSRF". The value of the CSRF token was available server side in the `HttpRequest` attributes from the initial request that loaded the home page. To get it to the client we could render it using a dynamic HTML page on the server, or expose it via a custom endpoint, or else we could send it as a cookie. The last choice is the best because Angular has https://docs.angularjs.org/api/ng/service/$http[built in support for CSRF] (which it calls "XSRF") based on cookies.
 
-So all we need on the server is a custom filter that will send the cookie. Angular wants the cookie name to be "XSRF-TOKEN" and Spring Security provides it as a request attribute, so we just need to transfer the value from a request attribute to a cookie:
+So on the server we need a custom filter that will send the cookie. Angular wants the cookie name to be "XSRF-TOKEN" and Spring Security provides it as a request attribute by default, so we just need to transfer the value from a request attribute to a cookie. Fortunately, Spring Security (since 4.1.0) provides a special `CsrfTokenRepository` that does precisely this:
 
-.CsrfHeaderFilter.java
-[source,java]
-----
-public class CsrfHeaderFilter extends OncePerRequestFilter {
-  @Override
-  protected void doFilterInternal(HttpServletRequest request,
-      HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
-    CsrfToken csrf = (CsrfToken) request.getAttribute(CsrfToken.class
-        .getName());
-    if (csrf != null) {
-      Cookie cookie = WebUtils.getCookie(request, "XSRF-TOKEN");
-      String token = csrf.getToken();
-      if (cookie==null || token!=null && !token.equals(cookie.getValue())) {
-        cookie = new Cookie("XSRF-TOKEN", token);
-        cookie.setPath("/");
-        response.addCookie(cookie);
-      }
-    }
-    filterChain.doFilter(request, response);
-  }
-}
-----
-
-To finish the job and make it completely generic we should be careful to set the cookie path to the context path of the application (instead of hard-coded to "/"), but this is good enough for the application we are working on. 
-
-We need to install this filter in the application somewhere, and it needs to go after the Spring Security `CsrfFilter` so that the request attribute is available. Since we have Spring Security protecting these resources there's no better place than in the Spring Security filter chain, e.g. extending the `SecurityConfiguration` above:
-
-.SecurityConfiguration.java
+.UiApplication.java
 [source,java]
 ----
 @Configuration
@@ -322,95 +342,17 @@ protected static class SecurityConfiguration extends WebSecurityConfigurerAdapte
       .authorizeRequests()
         .antMatchers("/index.html", "/home.html", "/login.html", "/").permitAll().anyRequest()
         .authenticated().and()
-      .addFilterAfter(new CsrfHeaderFilter(), CsrfFilter.class);
+      .csrf()
+        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse());
   }
-}
-----
-
-The other thing we have to do on the server is tell Spring Security to expect the CSRF token in the format that Angular wants to send it back (a header called "X-XRSF-TOKEN" instead of the default "X-CSRF-TOKEN"). We do this by customizing the CSRF filter:
-
-.SecurityConfiguration.java
-[source,java]
-----
-@Override
-protected void configure(HttpSecurity http) throws Exception {
-  http
-    .httpBasic().and()
-    ...
-    .csrf().csrfTokenRepository(csrfTokenRepository());
-}
-
-private CsrfTokenRepository csrfTokenRepository() {
-  HttpSessionCsrfTokenRepository repository = new HttpSessionCsrfTokenRepository();
-  repository.setHeaderName("X-XSRF-TOKEN");
-  return repository;
 }
 ----
 
 With those changes in place we don't need to do anything on the client side and the login form is now working.
 
-== Logout
-
-The application is almost finished functionally. The last thing we need to do is implement the logout feature that we sketched in the home page. Here's a reminder what the navigation bar looks like:
-
-.index.html
-[source,html]
-----
-<div ng-controller="navigation" class="container">
-  <ul class="nav nav-pills" role="tablist">
-    <li class="active"><a href="#/">home</a></li>
-    <li><a href="#/login">login</a></li>
-    <li ng-show="authenticated"><a href="" ng-click="logout()">logout</a></li>
-  </ul>
-</div>
-----
-
-If the user is authenticated then we show a "logout" link and hook it to a `logout()` function in the "navigation" controller. The implementation of the function is relatively simple:
-
-.hello.js
-[source,javascript]
-----
-angular.module('hello', [ 'ngRoute' ]). 
-// ...
-.controller('navigation', function(...) {
-
-...
-
-$scope.logout = function() {
-  $http.post('logout', {}).success(function() {
-    $rootScope.authenticated = false;
-    $location.path("/");
-  }).error(function(data) {
-    $rootScope.authenticated = false;
-  });
-}
-
-...
-
-});
-----
-
-It sends an HTTP POST to "/logout" which we now need to implement on the server. This is straightforward:
-
-.SecurityConfiguration.java
-[source,java]
-----
-@Override
-protected void configure(HttpSecurity http) throws Exception {
-  http
-    ...
-  .and()
-    .logout()
-    ...
-  ;
-}
-----
-
-(we just added `.logout()` to the `HttpSecurity` configuration builder).
-
 == How Does it Work?
 
-The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, requires a plugin in Firefox). Here's a summary:
+The interactions between the browser and the backend can be seen in your browser if you use some developer tools (usually F12 opens this up, works in Chrome by default, may require a plugin in Firefox). Here's a summary:
 
 |===
 |Verb |Path |Status |Response
@@ -419,11 +361,11 @@ The interactions between the browser and the backend can be seen in your browser
 |GET |/css/angular-bootstrap.css |200 |Twitter bootstrap CSS
 |GET |/js/angular-bootstrap.js |200 |Bootstrap and Angular JS
 |GET |/js/hello.js |200 |Application logic
-|GET |/user |401 |Unauthorized
+|GET |/user |401 |Unauthorized (ignored)
 |GET |/home.html |200 |Home page
-|GET |/resource |401 |Unauthorized
+|GET |/resource |401 |Unauthorized (ignored)
 |GET |/login.html |200 |Angular login form partial
-|GET |/user |401 |Unauthorized
+|GET |/user |401 |Unauthorized (ignored)
 |GET |/user |200 |Send credentials and get JSON
 |GET |/resource |200 |JSON greeting
 |===

@@ -3,9 +3,7 @@
 
 In this section we continue <<_the_login_page_angular_js_and_spring_security_part_ii,our discussion>> of how to use http://projects.spring.io/spring-security[Spring Security] with http://angularjs.org[Angular JS] in a "single page application". Here we start by breaking out the "greeting" resource that we are using as the dynamic content in our application into a separate server, first as an unprotected resource, and then protected by an opaque token. This is the third in a series of sections, and you can catch up on the basic building blocks of the application or build it from scratch by reading the <<_spring_and_angular_js_a_secure_single_page_application,first section>>, or you can just go straight to the source code in Github, which is in two parts: one where the https://github.com/dsyer/spring-security-angular/tree/master/vanilla[resource is unprotected], and one where it is https://github.com/dsyer/spring-security-angular/tree/master/spring-session[protected by a token].
 
-____
-Reminder: if you are working through this section with the sample application, be sure to clear your browser cache of cookies and HTTP Basic credentials. In Chrome the best way to do that for a single server is to open a new incognito window.
-____
+TIP: if you are working through this section with the sample application, be sure to clear your browser cache of cookies and HTTP Basic credentials. In Chrome the best way to do that for a single server is to open a new incognito window.
 
 == A Separate Resource Server
 
@@ -18,9 +16,10 @@ On the client side there isn't very much to do to move the resource to a differe
 ----
 angular.module('hello', [ 'ngRoute' ])
 ...
-.controller('home', function($scope, $http) {
-	$http.get('/resource/').success(function(data) {
-		$scope.greeting = data;
+.controller('home', function($http) {
+    var self = this;
+	$http.get('/resource/').then(function(response) {
+		self.greeting = response.data;
 	})
 })
 ...
@@ -33,9 +32,10 @@ All we need to do to this is change the URL. For example, if we are going to run
 ----
 angular.module('hello', [ 'ngRoute' ])
 ...
-.controller('home', function($scope, $http) {
-	$http.get('http://localhost:9000/').success(function(data) {
-		$scope.greeting = data;
+.controller('home', function($http) {
+    var self = this;
+	$http.get('http://localhost:9000/').then(function(response) {
+		self.greeting = response.data;
 	})
 })
 ...
@@ -49,29 +49,38 @@ The https://github.com/dsyer/spring-security-angular/blob/master/vanilla/ui/src/
 ----
 $ mkdir resource && cd resource
 $ curl https://start.spring.io/starter.tgz -d style=web \
--d name=resource -d language=groovy | tar -xzvf - 
+-d name=resource | tar -xzvf - 
 ----
 
-You can then import that project (it's a normal Maven Java project by default) into your favourite IDE, or just work with the files and "mvn" on the command line. We are using Groovy because we can, but please feel free to use Java if you prefer. There isn't going to be much code anyway.
+You can then import that project (it's a normal Maven Java project by default) into your favourite IDE, or just work with the files and "mvn" on the command line.
 
-Just add a `@RequestMapping` to the https://github.com/dsyer/spring-security-angular/blob/master/vanilla/resource/src/main/groovy/demo/ResourceApplication.groovy[main application class], copying the implementation from the https://github.com/dsyer/spring-security-angular/blob/master/single/src/main/java/demo/UiApplication.java[old UI]:
+Just add a `@RequestMapping` to the https://github.com/dsyer/spring-security-angular/blob/master/vanilla/resource/src/main/java/demo/ResourceApplication.java[main application class], copying the implementation from the https://github.com/dsyer/spring-security-angular/blob/master/single/src/main/java/demo/UiApplication.java[old UI]:
 
-.ResourceApplication.groovy
+.ResourceApplication.java
 [source,java]
 ----
 @SpringBootApplication
 @RestController
 class ResourceApplication {
 	
-  @RequestMapping('/')
-  def home() {
-    [id: UUID.randomUUID().toString(), content: 'Hello World']
-  }comm
-
-  static void main(String[] args) {
-    SpringApplication.run ResourceApplication, args
+  @RequestMapping("/")
+  public Message home() {
+    return new Message("Hello World");
   }
 
+  public static void main(String[] args) {
+    SpringApplication.run(ResourceApplication.class, args);
+  }
+
+}
+
+class Message {
+  private String id = UUID.randomUUID().toString();
+  private String content;
+  public Message(String content) {
+    this.content = content;
+  }
+  // ... getters and setters and default constructor
 }
 ----
 
@@ -79,7 +88,7 @@ Once that is done your application will be loadable in a browser. On the command
 
 [source]
 ----
-$ mvn spring-boot:run --server.port=9000
+$ mvn spring-boot:run -Dserver.port=9000
 ----
 
 and go to a browser at http://localhost:9000[http://localhost:9000] and you should see JSON with a greeting. You can bake in the port change in `application.properties` (in"src/main/resources"):
@@ -96,37 +105,20 @@ If you try loading that resource from the UI (on port 8080) in a browser, you wi
 
 The browser tries to negotiate with our resource server to find out if it is allowed to access it according to the http://en.wikipedia.org/wiki/Cross-origin_resource_sharing[Cross Origin Resource Sharing] protocol. It's not an Angular JS responsibility, so just like the cookie contract it will work like this with all JavaScript in the browser. The two servers do not declare that they have a common origin, so the browser declines to send the request and the UI is broken.
 
-To fix that we need to support the CORS protocol which involves a "pre-flight" OPTIONS request and some headers to list the allowed behaviour of the caller. Spring 4.2 might have some nice https://jira.spring.io/browse/SPR-9278[fine-grained CORS support], but until that is released we can do an adequate job for the purposes of this application by sending the same CORS responses to all requests using a `Filter`. We can just create a class in the same directory as the resource server application and make sure it is a `@Component` (so it gets scanned into the Spring application context), for example:
+To fix that we need to support the CORS protocol which involves a "pre-flight" OPTIONS request and some headers to list the allowed behaviour of the caller. Spring 4.2 has some nice https://jira.spring.io/browse/SPR-9278[fine-grained CORS support], so we can just add an annotation to our controller mapping, for example:
 
-.CorsFilter.groovy
+.ResourceApplication.java
 [source,java]
 ----
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-class CorsFilter implements Filter {
-
-  void doFilter(ServletRequest req, ServletResponse res, FilterChain chain) {
-    HttpServletResponse response = (HttpServletResponse) res
-    response.setHeader("Access-Control-Allow-Origin", "*")
-    response.setHeader("Access-Control-Allow-Methods", "POST, PUT, GET, OPTIONS, DELETE")
-    response.setHeader("Access-Control-Allow-Headers", "x-requested-with")
-    response.setHeader("Access-Control-Max-Age", "3600")
-    if (request.getMethod()!='OPTIONS') {
-      chain.doFilter(req, res)
-    } else {
-    }
-  }
-
-  void init(FilterConfig filterConfig) {}
-
-  void destroy() {}
-
+@RequestMapping("/")
+@CrossOrigin(origins="*", maxAge=3600)
+public Message home() {
+  return new Message("Hello World");
 }
 ----
 
-The `Filter` is defined with an `@Order` so that it is definitely applied _before_ the main Spring Security filter. With that change to the resource server, we should be able to re-launch it and get our greeting in the UI.
-
-NOTE: Blithely using `Access-Control-Allow-Origin=*` is quick and dirty, and it works, but it is not not secure and is not in any way recommended.
+NOTE: Blithely using `origins=*` is quick and dirty, and it works, but
+it is not not secure and is not in any way recommended.
 
 == Securing the Resource Server
 
@@ -134,7 +126,7 @@ Great! We have a working application with a new architecture. The only problem i
 
 === Adding Spring Security
 
-We can also look at how to add security to the resource server as a filter layer, like in the UI server. This is perhaps more conventional, and is certainly the best option in most PaaS environments (since they don't usually make private networks available to applications). The first step is really easy: just add Spring Security to the classpath in the Maven POM:
+We can also look at how to add security to the resource server as a filter layer, like in the UI server. The first step is really easy: just add Spring Security to the classpath in the Maven POM:
 
 .pom.xml
 [source,xml]
@@ -188,7 +180,6 @@ In the UI application we need to add some dependencies to our https://github.com
 <dependency>
   <groupId>org.springframework.session</groupId>
   <artifactId>spring-session</artifactId>
-  <version>1.0.0.RELEASE</version>
 </dependency>
 <dependency>
   <groupId>org.springframework.boot</groupId>
@@ -196,30 +187,11 @@ In the UI application we need to add some dependencies to our https://github.com
 </dependency>
 ----
 
-and then add `@EnableRedisHttpSession` to your main application:
-
-.UiApplication.java
-[source,java]
-----
-@SpringBootApplication
-@RestController
-@EnableRedisHttpSession
-public class UiApplication {
-
-  public static void main(String[] args) {
-    SpringApplication.run(UiApplication.class, args);
-  }
-
-  ...
-
-}
-----
-
-The `@EnableRedisHttpSession` annotation comes from Spring Session, and Spring Boot supplies a redis connection (a URL and credentials can be configured using environment variables or configuration files).
+Spring Boot and Spring Session work together to connect to Redis and store session data centrally.
 
 With that 1 line of code in place and a Redis server running on localhost you can run the UI application, login with some valid user credentials, and the session data (the authentication and CSRF token) will be stored in redis.
 
-TIP: if you don't have a redis server running locally you can easily spin one up with https://www.docker.com/[Docker] (on Windows or MacOS this requires a VM). There is a http://docs.docker.com/compose/[`docker-compose.yml`] file in the https://github.com/dsyer/spring-security-angular/tree/master/spring-session/docker-compose.yml[source code in Github] which you can run really easily on the command line with `docker-compose up`.
+TIP: if you don't have a redis server running locally you can easily spin one up with https://www.docker.com/[Docker] (on Windows or MacOS this requires a VM). There is a http://docs.docker.com/compose/[`docker-compose.yml`] file in the https://github.com/dsyer/spring-security-angular/tree/master/spring-session/docker-compose.yml[source code in Github] which you can run really easily on the command line with `docker-compose up`. If you do this in a VM the Redis server will be running on a different host than localhost, so you either need to tunnel it onto localhost, or configure the app to point at the correct `spring.redis.host` in your `application.properties`.
 
 == Sending a Custom Token from the UI
 
@@ -230,16 +202,17 @@ The only missing piece is the transport mechanism for the key to the data in the
 ----
 angular.module('hello', [ 'ngRoute' ])
 ...
-.controller('home', function($scope, $http) {
-  $http.get('token').success(function(token) {
+.controller('home', function($http) {
+  var self = this;
+  $http.get('token').then(function(response) {
     $http({
       url : 'http://localhost:9000',
       method : 'GET',
       headers : {
-        'X-Auth-Token' : token.token
+        'X-Auth-Token' : response.data.token
       }
-    }).success(function(data) {
-      $scope.greeting = data;
+    }).then(function(response) {
+      self.greeting = response.data;
     });
   })
 });
@@ -254,7 +227,6 @@ Instead of going directly to "http://localhost:9000[http://localhost:9000]" we h
 ----
 @SpringBootApplication
 @RestController
-@EnableRedisHttpSession
 public class UiApplication {
 
   public static void main(String[] args) {
@@ -264,7 +236,6 @@ public class UiApplication {
   ...
 
   @RequestMapping("/token")
-  @ResponseBody
   public Map<String,String> token(HttpSession session) {
     return Collections.singletonMap("token", session.getId());
   }
@@ -276,40 +247,51 @@ So the UI application is ready and will include the session ID in a header calle
 
 == Authentication in the Resource Server
 
-There is one tiny change to the resource server for it to be able to accept the custom header. The CORS filter has to nominate that header as an allowed one from remote clients, e.g.
+There is one tiny change to the resource server for it to be able to accept the custom header. The CORS configuration has to nominate that header as an allowed one from remote clients, e.g.
 
-.CorsFilter.groovy
+.ResourceApplication.java
 [source,java]
 ----
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class CorsFilter implements Filter {
-
-  void doFilter(ServletRequest req, ServletResponse res, FilterChain chain) throws IOException, ServletException {
-    ...
-    response.setHeader("Access-Control-Allow-Headers", "x-auth-token, x-requested-with")
-    ...
-  }
-
-  ...
+@RequestMapping("/")
+@CrossOrigin(origins = "*", maxAge = 3600, 
+    allowedHeaders={"x-auth-token", "x-requested-with"})
+public Message home() {
+  return new Message("Hello World");
 }
 ----
 
+The pre-flight check from the browser will now be handled by Spring MVC, but we need to tell Spring Security that it is allowed to let it through:
+
+.ResourceApplication.java
+[source,java]
+----
+public class ResourceApplication extends WebSecurityConfigurerAdapter {
+
+  @Override
+  protected void configure(HttpSecurity http) throws Exception {
+    http.cors().and().authorizeRequests()
+      .anyRequest().authenticated();
+  }
+
+  ...
+----
+
+NOTE: There is no need to `permitAll()` access to all resources, and there might be a handler that inadvertently sends sensitive data because it is not aware that the request is pre-flight. The `cors()` configuration utility mitigates this by handling all pre-flight requests in the filter layer.
+
 All that remains is to pick up the custom token in the resource server and use it to authenticate our user. This turns out to be pretty straightforward because all we need to do is tell Spring Security where the session repository is, and where to look for the token (session ID) in an incoming request. First we need to add the Spring Session and Redis dependencies, and then we can set up the `Filter`:
 
-.ResourceApplication.groovy
+.ResourceApplication.java
 [source,java]
 ----
 @SpringBootApplication
 @RestController
-@EnableRedisHttpSession
 class ResourceApplication {
 
   ...
   
   @Bean
   HeaderHttpSessionStrategy sessionStrategy() {
-    new HeaderHttpSessionStrategy();
+    return new HeaderHttpSessionStrategy();
   }
 
 }
@@ -326,7 +308,7 @@ security:
   sessions: NEVER
 ----
 
-This says to Spring Security "never create a session, but use one if it is there" (it will be already be there because of the authentication in the UI).
+This says to Spring Security "never create a session, but use one if it is there" (it will already be there because of the authentication in the UI).
 
 Re-launch the resource server and open the UI up in a new browser window.
 

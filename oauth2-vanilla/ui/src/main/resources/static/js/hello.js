@@ -2,41 +2,42 @@ angular.module('hello', [ 'ngRoute' ]).config(function($routeProvider) {
 
 	$routeProvider.when('/', {
 		templateUrl : 'home.html',
-		controller : 'home'
+		controller : 'home',
+		controllerAs : 'controller'
 	}).otherwise('/');
 
 }).controller('navigation',
 
-function($rootScope, $scope, $http, $location, $route) {
+function($rootScope, $http, $location, $route) {
 
-	$scope.tab = function(route) {
+	var self = this;
+
+	self.tab = function(route) {
 		return $route.current && route === $route.current.controller;
 	};
 
-	$http.get('user').success(function(data) {
-		if (data.name) {
+	$http.get('user').then(function(response) {
+		if (response.data.name) {
 			$rootScope.authenticated = true;
 		} else {
 			$rootScope.authenticated = false;
 		}
-	}).error(function() {
+	}, function() {
 		$rootScope.authenticated = false;
 	});
 
-	$scope.credentials = {};
+	self.credentials = {};
 
-	$scope.logout = function() {
-		$http.post('logout', {}).success(function() {
+	self.logout = function() {
+		$http.post('logout', {}).finally(function() {
 			$rootScope.authenticated = false;
 			$location.path("/");
-		}).error(function(data) {
-			console.log("Logout failed")
-			$rootScope.authenticated = false;
 		});
 	}
 
-}).controller('home', function($scope, $http) {
-	$http.get('resource/').success(function(data) {
-		$scope.greeting = data;
+}).controller('home', function($http) {
+	var self = this;
+	$http.get('resource/').then(function(response) {
+		self.greeting = response.data;
 	})
 });
